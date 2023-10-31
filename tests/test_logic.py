@@ -6,9 +6,6 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from notes.forms import WARNING
 
-# Импортируем из файла с формами список стоп-слов и предупреждение формы.
-# Загляните в news/forms.py, разберитесь с их назначением.
-# from news.forms import BAD_WORDS, WARNING
 from notes.models import Note
 
 User = get_user_model()
@@ -62,7 +59,7 @@ class TestSameSlug(TestCase):
         cls.author = User.objects.create(username='Иван Иваныч')
         cls.auth_client = Client()
         cls.auth_client.force_login(cls.author)        
-        cls.notes = Note.objects.create(title=cls.TITLE,
+        cls.note = Note.objects.create(title=cls.TITLE,
                                         text=cls.TEXT,
                                         slug=cls.SLUG,
                                         author=cls.author
@@ -72,25 +69,25 @@ class TestSameSlug(TestCase):
 
     def test_cant_same_slug_twice(self):
         response = self.auth_client.post(self.url, data=self.form_data)
+        self.form_data['slug'] = self.note.slug
         self.assertFormError(
             response,
             form='form',
             field='slug',
-            errors=WARNING
+            errors=(self.note.slug + WARNING)
         )
         notes_count = Note.objects.count()
         self.assertEqual(notes_count, 1)
 
-    def test_emty_slug(self):
+    def test_empty_slug(self):
         self.auth_client.post(self.url, data=self.form_data)
-        self.notes.refresh_from_db()
+        self.note.refresh_from_db()
         slug = slugify(self.TITLE)[:100]
-        self.assertEqual(self.notes.slug, slug)
+        self.assertEqual(self.note.slug, slug)
 
 
 class TestNoteEditDelete(TestCase):
-    NOTE_TEXT = 'Текст заметки'
-    NEW_NOTE_TEXT = 'Обновленный текст заметки'
+    
 
     @classmethod
     def setUpTestData(cls):
@@ -103,41 +100,39 @@ class TestNoteEditDelete(TestCase):
         cls.other_author_client.force_login(cls.other_author)
         
         cls.authors_note = Note.objects.create(title='Заголовок',
-                                        text=cls.NOTE_TEXT,
-                                        slug='Adress',
+                                        text='Текст заметки',
+                                        slug='slug',
                                         author=cls.author)
-        
-        cls.other_authors_note = Note.objects.create(title='Заголовок',
-                                        text=cls.NOTE_TEXT,
-                                        slug='Adress_2',
-                                        author=cls.other_author)
-        
+
         cls.edit_note_url = reverse('notes:edit', args=(cls.authors_note.slug,))
         cls.delete_note_url = reverse('notes:delete', args=(cls.authors_note.slug,))
 
-        cls.other_edit_note_url = reverse('notes:edit', args=(cls.other_authors_note.slug,))
-        cls.other_delete_note_url = reverse('notes:delete', args=(cls.other_authors_note.slug,))
-
-        cls.form_data = {'text': cls.NEW_NOTE_TEXT}
+        cls.form_data = {'title': 'Другой_заголовок',
+                         'text': 'Другой текст',
+                         'slug': 'other_slug'}
 
     def test_author_can_delete_own_note(self):
         self.author_client.delete(self.delete_note_url)
         notes_count = Note.objects.count()
-        self.assertEqual(notes_count, 1)
+        self.assertEqual(notes_count, 0)
 
-    def test_author_cant_delete_note_of_another_author(self):
-        response = self.author_client.delete(self.other_delete_note_url)
+    def test_other_author_cant_delete_note_of_author(self):
+        response = self.other_author_client.delete(self.delete_note_url)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
         notes_count = Note.objects.count()
-        self.assertEqual(notes_count, 2)
+        self.assertEqual(notes_count, 1)
 
     def test_author_can_edit_own_note(self):
         self.author_client.post(self.edit_note_url, data=self.form_data)
         self.authors_note.refresh_from_db()
-        self.assertEqual(self.authors_note.text, self.NEW_NOTE_TEXT)
+        self.assertEqual(self.authors_note.title, self.form_data['title'])
+        self.assertEqual(self.authors_note.text, self.form_data['text'])
+        self.assertEqual(self.authors_note.slug, self.form_data['slug'])
 
-    def test_author_cant_edit_note_of_another_author(self):
-        response = self.author_client.post(self.other_edit_note_url, data=self.form_data)
+    def test_other_author_cant_edit_authors_note(self):
+        response = self.other_author_client.post(self.edit_note_url, data=self.form_data)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
-        self.other_authors_note.refresh_from_db()
-        self.assertEqual(self.other_authors_note.text, self.NOTE_TEXT)
+        self.authors_note.refresh_from_db()
+        self.assertEqual(self.authors_note.title, 'Заголовок')
+        self.assertEqual(self.authors_note.text, 'Текст заметки')
+        self.assertEqual(self.authors_note.slug, 'slug')
