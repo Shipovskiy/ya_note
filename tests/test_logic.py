@@ -4,11 +4,12 @@ from pytils.translit import slugify
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
-from notes.forms import WARNING
 
+from notes.forms import WARNING
 from notes.models import Note
 
 User = get_user_model()
+
 
 class TestNoteCreation(TestCase):
     TITLE = 'Заголовок'
@@ -19,8 +20,6 @@ class TestNoteCreation(TestCase):
     def setUpTestData(cls):
         cls.author = User.objects.create(username='Иван Иваныч')
         cls.not_author = User.objects.create(username='Петр Петрович')
-    #    cls.auth_client = Client()
-    #    cls.auth_client.force_login(cls.author)        
         cls.notes = Note.objects.create(title='Заголовок',
                                         text='Текст',
                                         slug='Adress',
@@ -30,8 +29,9 @@ class TestNoteCreation(TestCase):
         cls.auth_client = Client()
         cls.auth_client.force_login(cls.author)
         # Данные для POST-запроса при создании комментария.
-        cls.form_data = {'title': cls.TITLE, 'text': cls.TEXT, 'slug': cls.SLUG, 'author': cls.author}
-        cls.form_data2 = {'title': cls.TITLE, 'text': cls.TEXT, 'slug': cls.SLUG, 'author': cls.author}
+        cls.form_data = {'title': cls.TITLE,
+                         'text': cls.TEXT,
+                         'slug': cls.SLUG}
         cls.edit_url = reverse('notes:edit', args=(cls.notes.slug,))
         cls.delete_url = reverse('notes:delete', args=(cls.notes.slug,))
 
@@ -44,8 +44,10 @@ class TestNoteCreation(TestCase):
         self.auth_client.post(self.url, data=self.form_data)
         notes_count = Note.objects.count()
         self.assertEqual(notes_count, 1)
-        notes = Note.objects.get()
+        notes = Note.objects.last()
+        self.assertEqual(notes.title, self.TITLE)
         self.assertEqual(notes.text, self.TEXT)
+        self.assertEqual(notes.slug, self.SLUG)
         self.assertEqual(notes.author, self.author)
 
 
@@ -60,12 +62,14 @@ class TestSameSlug(TestCase):
         cls.auth_client = Client()
         cls.auth_client.force_login(cls.author)        
         cls.note = Note.objects.create(title=cls.TITLE,
-                                        text=cls.TEXT,
-                                        slug=cls.SLUG,
-                                        author=cls.author
-                                        )
+                                       text=cls.TEXT,
+                                       slug=cls.SLUG, 
+                                       author=cls.author)
         cls.url = reverse('notes:add', args=None,)
-        cls.form_data = {'title': cls.TITLE, 'text': cls.TEXT, 'slug': cls.SLUG, 'author': cls.author}
+        cls.form_data = {'title': cls.TITLE,
+                         'text': cls.TEXT,
+                         'slug': cls.SLUG,
+                         'author': cls.author}
 
     def test_cant_same_slug_twice(self):
         response = self.auth_client.post(self.url, data=self.form_data)
@@ -82,34 +86,35 @@ class TestSameSlug(TestCase):
     def test_empty_slug(self):
         self.auth_client.post(self.url, data=self.form_data)
         self.note.refresh_from_db()
-        slug = slugify(self.TITLE)[:100]
+        slug = slugify(self.TITLE)
         self.assertEqual(self.note.slug, slug)
 
 
 class TestNoteEditDelete(TestCase):
-    
+    TITLE = 'Заголовок'
+    TEXT = 'Текст заметки'
+    SLUG = 'slug'
 
     @classmethod
     def setUpTestData(cls):
         cls.author = User.objects.create(username='Автор заметки')
         cls.author_client = Client()
         cls.author_client.force_login(cls.author)
-
         cls.other_author = User.objects.create(username='Другой автор')
         cls.other_author_client = Client()
         cls.other_author_client.force_login(cls.other_author)
-        
-        cls.authors_note = Note.objects.create(title='Заголовок',
-                                        text='Текст заметки',
-                                        slug='slug',
-                                        author=cls.author)
-
-        cls.edit_note_url = reverse('notes:edit', args=(cls.authors_note.slug,))
-        cls.delete_note_url = reverse('notes:delete', args=(cls.authors_note.slug,))
-
+        cls.authors_note = Note.objects.create(title=cls.TITLE,
+                                               text=cls.TEXT,
+                                               slug=cls.SLUG,
+                                               author=cls.author)
+        cls.edit_note_url = reverse('notes:edit',
+                                    args=(cls.authors_note.slug,))
+        cls.delete_note_url = reverse('notes:delete',
+                                      args=(cls.authors_note.slug,))
         cls.form_data = {'title': 'Другой_заголовок',
                          'text': 'Другой текст',
-                         'slug': 'other_slug'}
+                         'slug': 'other_slug',
+                         'author': cls.author}
 
     def test_author_can_delete_own_note(self):
         self.author_client.delete(self.delete_note_url)
@@ -128,11 +133,14 @@ class TestNoteEditDelete(TestCase):
         self.assertEqual(self.authors_note.title, self.form_data['title'])
         self.assertEqual(self.authors_note.text, self.form_data['text'])
         self.assertEqual(self.authors_note.slug, self.form_data['slug'])
+        self.assertEqual(self.authors_note.author, self.form_data['author'])
 
     def test_other_author_cant_edit_authors_note(self):
-        response = self.other_author_client.post(self.edit_note_url, data=self.form_data)
+        response = self.other_author_client.post(self.edit_note_url,
+                                                 data=self.form_data)
         self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
         self.authors_note.refresh_from_db()
-        self.assertEqual(self.authors_note.title, 'Заголовок')
-        self.assertEqual(self.authors_note.text, 'Текст заметки')
-        self.assertEqual(self.authors_note.slug, 'slug')
+        self.assertEqual(self.authors_note.title, self.TITLE)
+        self.assertEqual(self.authors_note.text, self.TEXT)
+        self.assertEqual(self.authors_note.slug, self.SLUG)
+        self.assertEqual(self.authors_note.author, self.author)
